@@ -1,0 +1,18 @@
+{
+  "name": "mqtt-source",
+  "config": {
+    "connector.class": "com.datamountaineer.streamreactor.connect.mqtt.source.MqttSourceConnector",
+    "tasks.max": "1",
+    "topics": "position-reports",
+    "connect.mqtt.connection.clean": "true",
+    "connect.mqtt.connection.timeout": "1000",
+    "connect.mqtt.source.kcql": "INSERT INTO position-reports SELECT * FROM /ais",
+    "connect.mqtt.connection.keep.alive": "1000",
+    "connect.mqtt.source.converters": "/ais=com.datamountaineer.streamreactor.connect.converters.source.AvroConverter",
+    "connect.source.converter.avro.schemas": "/ais=/classAPositionReportSchema.json",
+    "connect.mqtt.client.id": "ais-mqtt-connect-01",
+    "connect.mqtt.converter.throw.on.error": "true",
+    "connect.mqtt.hosts": "tcp://localhost:1883",
+    "connect.mqtt.service.quality": "1"
+  }
+}
