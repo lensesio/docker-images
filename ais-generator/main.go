@@ -106,6 +106,20 @@ func main() {
 		var message ais.Message
 		// To keep track of messages decoded and send to workers.
 		numMessages := 0
+
+		go func() {
+			lastMessages := 0
+			curMessages := 0
+			ticker := time.NewTicker(10 * time.Second)
+			for range ticker.C {
+				// no lock for numMessages but meh
+				curMessages = numMessages
+				log.Printf("Messages sent - 10sec / total): %d / %d\n",
+					curMessages-lastMessages, curMessages)
+				lastMessages = curMessages
+			}
+		}()
+
 	routerLoop:
 		for {
 			select {
