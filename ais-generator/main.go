@@ -1,11 +1,9 @@
 /*
-A simple program to decode AIS messages, select Class A Position
-reports, encode them to Avro, serialize them to binary and send
-them to MQTT. It has a simple worker pool to speed-up the slowest
-part of the process (waiting for delivery confirmation from MQTT)
-and the number of messages sent is configurable (iterates over
-the same source until it reaches the quota).
+A program to serialize AIS messages to Avro and send them to
+Kafka. It supports custom rate and jitter, so it can be used
+for demos, etc.
 */
+
 package main
 
 import (
@@ -14,6 +12,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -34,11 +33,12 @@ var (
 	nmeaDataFilename  = flag.String("nmea", "live-nmea",
 		"file containing nmea sentences (size isn't important but better to have a few thousand Class A sentences)")
 	testMessages     = flag.Int("messages", 100000, "number of messages to send to kafka")
-	numWorkers       = flag.Int("producers", 4, "number of workers to encode messages to avro and send them to brokers")
+	numWorkers       = flag.Int("producers", 8, "number of workers to encode messages to avro and send them to brokers")
 	bootstrapServers = flag.String("bootstrap-servers", "localhost:9092", "bootstrap servers")
 	topic            = flag.String("topic", "position-reports", "")
 	schemaRegistry   = flag.String("schema-registry", "http://localhost:8081", "Schema Registry")
 	rateLimit        = flag.Int("rate", 1000000, "produce rate per sec, should be > 4")
+	jitter           = flag.Float64("jitter", 0, "if not 0, rate will follow a normal distribution with mean=rate and stddev=jitter")
 )
 
 var workerWg sync.WaitGroup
@@ -96,7 +96,7 @@ func main() {
 	// it will re-supply the AIS router with sentences from the NMEA file,
 	// rolling over if needed. It is fairly quick and not the bottleneck of
 	// the code.
-	limiter = rate.NewLimiter(rate.Limit(*rateLimit), *rateLimit>>2)
+	limiter = rate.NewLimiter(rate.Limit(*rateLimit), *rateLimit>>1)
 	ctx := context.TODO()
 	//var rv *rate.Reservation
 	workerWg.Add(1)
@@ -110,12 +110,17 @@ func main() {
 		go func() {
 			lastMessages := 0
 			curMessages := 0
+			jitterLimit := 0.0
 			ticker := time.NewTicker(10 * time.Second)
 			for range ticker.C {
+				// Set jitter (disabled if jitter == 0)
+				jitterLimit = float64(*rateLimit) + rand.NormFloat64()**jitter
+				limiter.SetLimit(rate.Limit(jitterLimit))
+
 				// no lock for numMessages but meh
 				curMessages = numMessages
-				log.Printf("Messages sent - 10sec / total): %d / %d\n",
-					curMessages-lastMessages, curMessages)
+				log.Printf("Messages sent - 10sec / total, new rate set at: %d / %d, %.2f msg/sec\n",
+					curMessages-lastMessages, curMessages, jitterLimit)
 				lastMessages = curMessages
 			}
 		}()
@@ -161,7 +166,7 @@ func main() {
 		}
 	}()
 
-	log.Println("Starting to proccess messages.")
+	log.Println("Starting to process messages.")
 	// First entry will start our self-feeding function above.
 	classifiedSentences <- ais.Message{Type: 255}
 
