@@ -19,10 +19,7 @@ RUN sed -e '/admin:.*/d' \
     && echo "$ACTIVEMQ_USER" >> /opt/activemq/conf/jetty-realm.properties
 
 # Enable ActiveMQ (via supervisord)
-RUN mkdir /etc/supervisord.d
 ADD activemq.conf /etc/supervisord.d/
-RUN echo "[include]" >> /etc/supervisord.conf \
-    && echo 'files = /etc/supervisord.d/*.conf' >> /etc/supervisord.conf
 ENV PATH $PATH:/opt/activemq/bin
 
 # Install and configure AIS exporter
