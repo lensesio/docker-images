@@ -15,4 +15,5 @@ RUN cd $GOPATH/src/landoop/ais-generator \
     && go get -v \
     && go build -v
 
+ENV GODEBUG=cgocheck=0
 ENTRYPOINT ["/opt/go/bin/ais-generator" ]
