@@ -204,19 +204,21 @@ func mqttWorker(msgBus chan ais.ClassAPositionReport, schema string) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	deliveryChan := make(chan kafka.Event)
+	//deliveryChan := make(chan kafka.Event)
 	go func() {
-		for e := range deliveryChan {
-			m := e.(*kafka.Message)
-
-			if m.TopicPartition.Error != nil {
-				fmt.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
+		for e := range producer.Events() {
+			switch ev := e.(type) {
+			case *kafka.Message:
+				m := ev
+				if m.TopicPartition.Error != nil {
+					fmt.Printf("Delivery failed: %v\n", m.TopicPartition.Error)
+				}
+				// else {
+				// 	fmt.Printf("Delivered message to topic %s [%d] at offset %v\n",
+				// 		*m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
+				// }
+				wait <- true
 			}
-			// else {
-			// 	fmt.Printf("Delivered message to topic %s [%d] at offset %v\n",
-			// 		*m.TopicPartition.Topic, m.TopicPartition.Partition, m.TopicPartition.Offset)
-			// }
-			wait <- true
 		}
 		log.Println("waiter ended")
 	}()
@@ -230,10 +232,7 @@ func mqttWorker(msgBus chan ais.ClassAPositionReport, schema string) {
 			log.Println(err)
 		}
 		// Publish the binary message to MQTT. Ask to deliver it at least once (QoS 1)
-		err = producer.Produce(&kafka.Message{TopicPartition: kafka.TopicPartition{Topic: topic, Partition: kafka.PartitionAny}, Value: tempBuf}, deliveryChan)
-		if err != nil {
-			log.Println(err)
-		}
+		producer.ProduceChannel() <- &kafka.Message{TopicPartition: kafka.TopicPartition{Topic: topic, Partition: kafka.PartitionAny}, Value: tempBuf}
 	}
 }
 
