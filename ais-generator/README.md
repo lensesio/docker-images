@@ -14,7 +14,7 @@ a real world recording of about 275000 such reports and rolls over once it
 send them all.
 
 The produce process follows a normal distribution with `mean=rate` and
-`stddev=jitter`. Thus if you set `jitter=0` you get a stable rate.
+`stddev=jitter`. Thus if you set `jitter=0` (default) you get a stable rate.
 
 The reason we distribute it as a docker image is the librdkafka
 bindings for Go, which make it non-trivial to build and use properly.

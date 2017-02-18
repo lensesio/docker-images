@@ -112,6 +112,7 @@ func main() {
 			curMessages := 0
 			jitterLimit := 0.0
 			ticker := time.NewTicker(10 * time.Second)
+			rand.Seed(time.Now().UTC().UnixNano())
 			for range ticker.C {
 				// Set jitter (disabled if jitter == 0)
 				jitterLimit = float64(*rateLimit) + rand.NormFloat64()**jitter
