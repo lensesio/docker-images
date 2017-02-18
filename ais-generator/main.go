@@ -33,7 +33,7 @@ var (
 	nmeaDataFilename  = flag.String("nmea", "live-nmea",
 		"file containing nmea sentences (size isn't important but better to have a few thousand Class A sentences)")
 	testMessages     = flag.Int("messages", 100000, "number of messages to send to kafka")
-	numWorkers       = flag.Int("producers", 8, "number of workers to encode messages to avro and send them to brokers")
+	numWorkers       = flag.Int("producers", 1, "number of workers to encode messages to avro and send them to brokers")
 	bootstrapServers = flag.String("bootstrap-servers", "localhost:9092", "bootstrap servers")
 	topic            = flag.String("topic", "position-reports", "")
 	schemaRegistry   = flag.String("schema-registry", "http://localhost:8081", "Schema Registry")
@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// The msgBus will deliver the decoded messages to the workers.
-	msgBus := make(chan ais.ClassAPositionReport, 1024*256)
+	msgBus := make(chan ais.ClassAPositionReport, 1024*64)
 
 	// Spawn our workers. They encode the messages to avro and send them to MQTT.
 	workerWg.Add(*numWorkers)
@@ -78,7 +78,7 @@ func main() {
 	// in a type - payload struct.
 	aisSentences := make(chan string, 1024*128)
 	classifiedSentences := make(chan ais.Message, 1024*128)
-	failedSentences := make(chan ais.FailedSentence, 1024*128)
+	failedSentences := make(chan ais.FailedSentence, 1024*1)
 	go ais.Router(aisSentences, classifiedSentences, failedSentences)
 
 	// Open the file that contains raw NMEA sentences. It was recorded from
@@ -203,7 +203,11 @@ func mqttWorker(msgBus chan ais.ClassAPositionReport, schema string) {
 	record := gavro.NewGenericRecord(regSchema)
 
 	// Create producer
-	producer, err := kafka.NewProducer(&kafka.ConfigMap{"bootstrap.servers": *bootstrapServers})
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers":       *bootstrapServers,
+		"go.batch.producer":       false, // default value, do not enable, stops working after a few rounds, no need for GODEBUG=cgocheck=0 though
+		"queue.buffering.max.ms":  250,
+		"go.produce.channel.size": 1024 * 128})
 	if err != nil {
 		log.Fatalln(err)
 	}
