@@ -37,7 +37,7 @@ var (
 	bootstrapServers = flag.String("bootstrap-servers", "localhost:9092", "bootstrap servers")
 	topic            = flag.String("topic", "position-reports", "")
 	schemaRegistry   = flag.String("schema-registry", "http://localhost:8081", "Schema Registry")
-	rateLimit        = flag.Int("rate", 1000000, "produce rate per sec, should be > 4")
+	rateLimit        = flag.Int("rate", 1000000, "produce rate per sec, should be > 2")
 	jitter           = flag.Float64("jitter", 0, "if not 0, rate will follow a normal distribution with mean=rate and stddev=jitter")
 )
 
@@ -116,6 +116,9 @@ func main() {
 			for range ticker.C {
 				// Set jitter (disabled if jitter == 0)
 				jitterLimit = float64(*rateLimit) + rand.NormFloat64()**jitter
+				if jitterLimit < 0 {
+					jitterLimit = 0
+				}
 				limiter.SetLimit(rate.Limit(jitterLimit))
 
 				// no lock for numMessages but meh
