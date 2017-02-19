@@ -33,11 +33,11 @@ var (
 	nmeaDataFilename  = flag.String("nmea", "live-nmea",
 		"file containing nmea sentences (size isn't important but better to have a few thousand Class A sentences)")
 	testMessages     = flag.Int("messages", 100000, "number of messages to send to kafka")
-	numWorkers       = flag.Int("producers", 1, "number of workers to encode messages to avro and send them to brokers")
+	numWorkers       = flag.Int("producers", 4, "number of workers to encode messages to avro and send them to brokers")
 	bootstrapServers = flag.String("bootstrap-servers", "localhost:9092", "bootstrap servers")
 	topic            = flag.String("topic", "position-reports", "")
 	schemaRegistry   = flag.String("schema-registry", "http://localhost:8081", "Schema Registry")
-	rateLimit        = flag.Int("rate", 1000000, "produce rate per sec, should be > 2")
+	rateLimit        = flag.Int("rate", 1000000, "produce rate per sec, should be > 20")
 	jitter           = flag.Float64("jitter", 0, "if not 0, rate will follow a normal distribution with mean=rate and stddev=jitter")
 )
 
@@ -70,7 +70,7 @@ func main() {
 	// Spawn our workers. They encode the messages to avro and send them to MQTT.
 	workerWg.Add(*numWorkers)
 	for i := 1; i <= *numWorkers; i++ {
-		go mqttWorker(msgBus, schema)
+		go worker(msgBus, schema)
 	}
 
 	// This is aislib specific code. It creates an AIS router where we send
@@ -96,7 +96,18 @@ func main() {
 	// it will re-supply the AIS router with sentences from the NMEA file,
 	// rolling over if needed. It is fairly quick and not the bottleneck of
 	// the code.
-	limiter = rate.NewLimiter(rate.Limit(*rateLimit), *rateLimit>>1)
+	rateDivider := 1
+	switch {
+	case 5000 <= *rateLimit && *rateLimit < 10000:
+		rateDivider = 3
+	case 10000 <= *rateLimit && *rateLimit < 100000:
+		rateDivider = 7
+	case 100000 <= *rateLimit:
+		rateDivider = 13
+	}
+	rateBase := rate.Limit(*rateLimit / rateDivider)
+	*jitter = *jitter / float64(rateDivider)
+	limiter = rate.NewLimiter(rateBase, (*rateLimit/rateDivider)>>1)
 	ctx := context.TODO()
 	//var rv *rate.Reservation
 	workerWg.Add(1)
@@ -110,21 +121,21 @@ func main() {
 		go func() {
 			lastMessages := 0
 			curMessages := 0
-			jitterLimit := 0.0
+			var jitterLimit rate.Limit
 			ticker := time.NewTicker(10 * time.Second)
 			rand.Seed(time.Now().UTC().UnixNano())
 			for range ticker.C {
 				// Set jitter (disabled if jitter == 0)
-				jitterLimit = float64(*rateLimit) + rand.NormFloat64()**jitter
+				jitterLimit = rateBase + rate.Limit(rand.NormFloat64()**jitter)
 				if jitterLimit < 0 {
-					jitterLimit = 0
+					jitterLimit = 1
 				}
-				limiter.SetLimit(rate.Limit(jitterLimit))
+				limiter.SetLimit(jitterLimit)
 
 				// no lock for numMessages but meh
 				curMessages = numMessages
 				log.Printf("Messages sent - 10sec / total, new rate set at: %d / %d, %.2f msg/sec\n",
-					curMessages-lastMessages, curMessages, jitterLimit)
+					curMessages-lastMessages, curMessages, jitterLimit*rate.Limit(rateDivider))
 				lastMessages = curMessages
 			}
 		}()
@@ -138,7 +149,9 @@ func main() {
 				case 1, 2, 3:
 					// Decode message
 					t, _ := ais.DecodeClassAPositionReport(message.Payload)
-					limiter.Wait(ctx)
+					if numMessages%rateDivider == 0 {
+						limiter.Wait(ctx)
+					}
 					msgBus <- t
 					numMessages++
 					if numMessages == *testMessages {
@@ -185,7 +198,7 @@ var wait = make(chan bool, 1000000)
 
 // mqttWorker receives ClassAPositionReport messages over a channel, encodes
 // them to avro and sends them to mqtt
-func mqttWorker(msgBus chan ais.ClassAPositionReport, schema string) {
+func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 	defer workerWg.Done()
 
 	// Register Schema
