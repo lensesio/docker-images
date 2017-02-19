@@ -43,6 +43,7 @@ var (
 
 var workerWg sync.WaitGroup
 var limiter *rate.Limiter
+var rateDivider = 1
 
 func main() {
 	flag.Parse()
@@ -96,14 +97,15 @@ func main() {
 	// it will re-supply the AIS router with sentences from the NMEA file,
 	// rolling over if needed. It is fairly quick and not the bottleneck of
 	// the code.
-	rateDivider := 1
 	switch {
 	case 5000 <= *rateLimit && *rateLimit < 10000:
 		rateDivider = 3
-	case 10000 <= *rateLimit && *rateLimit < 100000:
+	case 10000 <= *rateLimit && *rateLimit < 50000:
 		rateDivider = 7
-	case 100000 <= *rateLimit:
+	case 50000 <= *rateLimit && *rateLimit < 100000:
 		rateDivider = 13
+	case 100000 <= *rateLimit:
+		rateDivider = 53
 	}
 	rateBase := rate.Limit(*rateLimit / rateDivider)
 	*jitter = *jitter / float64(rateDivider)
