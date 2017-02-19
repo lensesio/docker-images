@@ -33,7 +33,7 @@ var (
 	nmeaDataFilename  = flag.String("nmea", "live-nmea",
 		"file containing nmea sentences (size isn't important but better to have a few thousand Class A sentences)")
 	testMessages     = flag.Int("messages", 100000, "number of messages to send to kafka")
-	numWorkers       = flag.Int("producers", 4, "number of workers to encode messages to avro and send them to brokers")
+	numWorkers       = flag.Int("producers", 2, "number of workers to encode messages to avro and send them to brokers")
 	bootstrapServers = flag.String("bootstrap-servers", "localhost:9092", "bootstrap servers")
 	topic            = flag.String("topic", "position-reports", "")
 	schemaRegistry   = flag.String("schema-registry", "http://localhost:8081", "Schema Registry")
@@ -105,7 +105,7 @@ func main() {
 	case 50000 <= *rateLimit && *rateLimit < 100000:
 		rateDivider = 13
 	case 100000 <= *rateLimit:
-		rateDivider = 53
+		rateDivider = 29
 	}
 	rateBase := rate.Limit(*rateLimit / rateDivider)
 	*jitter = *jitter / float64(rateDivider)
