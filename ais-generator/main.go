@@ -77,8 +77,8 @@ func main() {
 	// This is aislib specific code. It creates an AIS router where we send
 	// AIS sentences and the router decodes their type and sends them back
 	// in a type - payload struct.
-	aisSentences := make(chan string, 1024*128)
-	classifiedSentences := make(chan ais.Message, 1024*128)
+	aisSentences := make(chan string, 1024*64)
+	classifiedSentences := make(chan ais.Message, 1024*64)
 	failedSentences := make(chan ais.FailedSentence, 1024*1)
 	go ais.Router(aisSentences, classifiedSentences, failedSentences)
 
@@ -103,15 +103,14 @@ func main() {
 	case 10000 <= *rateLimit && *rateLimit < 50000:
 		rateDivider = 7
 	case 50000 <= *rateLimit && *rateLimit < 100000:
-		rateDivider = 13
+		rateDivider = 11
 	case 100000 <= *rateLimit:
-		rateDivider = 29
+		rateDivider = 13
 	}
 	rateBase := rate.Limit(*rateLimit / rateDivider)
 	*jitter = *jitter / float64(rateDivider)
 	limiter = rate.NewLimiter(rateBase, (*rateLimit/rateDivider)>>1)
-	ctx := context.TODO()
-	//var rv *rate.Reservation
+
 	workerWg.Add(1)
 	go func() {
 		defer workerWg.Done()
@@ -151,9 +150,6 @@ func main() {
 				case 1, 2, 3:
 					// Decode message
 					t, _ := ais.DecodeClassAPositionReport(message.Payload)
-					if numMessages%rateDivider == 0 {
-						limiter.Wait(ctx)
-					}
 					msgBus <- t
 					numMessages++
 					if numMessages == *testMessages {
@@ -221,7 +217,7 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
 		"bootstrap.servers":       *bootstrapServers,
 		"go.batch.producer":       false, // default value, do not enable, stops working after a few rounds, no need for GODEBUG=cgocheck=0 though
-		"queue.buffering.max.ms":  250,
+		"queue.buffering.max.ms":  200,
 		"go.produce.channel.size": 1024 * 128})
 	if err != nil {
 		log.Fatalln(err)
@@ -245,6 +241,8 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 		log.Println("waiter ended")
 	}()
 	tempBuf := make([]byte, 100)
+	numMessages := 0
+	ctx := context.TODO()
 	for msg := range msgBus {
 		// Set ais messages data into the avro record
 		classA2Record(msg, record)
@@ -255,6 +253,11 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 		}
 		// Publish the binary message to MQTT. Ask to deliver it at least once (QoS 1)
 		producer.ProduceChannel() <- &kafka.Message{TopicPartition: kafka.TopicPartition{Topic: topic, Partition: kafka.PartitionAny}, Value: tempBuf}
+		if numMessages%rateDivider == 0 {
+			limiter.Wait(ctx)
+		}
+		numMessages++
+
 	}
 }
 
