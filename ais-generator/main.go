@@ -61,8 +61,9 @@ func main() {
 	// Load schema
 	schema := registerSchemaFromFile(*schemaFilename, "-value")
 	//Optionally load key
+	var schemaKey string
 	if len(*schemaKeyFilename) > 0 {
-		registerSchemaFromFile(*schemaKeyFilename, "-key")
+		schemaKey = registerSchemaFromFile(*schemaKeyFilename, "-key")
 	}
 
 	// The msgBus will deliver the decoded messages to the workers.
@@ -71,7 +72,7 @@ func main() {
 	// Spawn our workers. They encode the messages to avro and send them to MQTT.
 	workerWg.Add(*numWorkers)
 	for i := 1; i <= *numWorkers; i++ {
-		go worker(msgBus, schema)
+		go worker(msgBus, schema, schemaKey)
 	}
 
 	// This is aislib specific code. It creates an AIS router where we send
@@ -196,7 +197,7 @@ var wait = make(chan bool, 1000000)
 
 // mqttWorker receives ClassAPositionReport messages over a channel, encodes
 // them to avro and sends them to mqtt
-func worker(msgBus chan ais.ClassAPositionReport, schema string) {
+func worker(msgBus chan ais.ClassAPositionReport, schema string, schemaKey string) {
 	defer workerWg.Done()
 
 	// Register Schema
@@ -206,12 +207,19 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 	if err != nil {
 		log.Fatalln(err)
 	}
+	regSchemaKey, _ := gavro.ParseSchema(schemaKey)
+	_, err = sRClient.Register(*topic, regSchemaKey)
+	if err != nil {
+		log.Fatalln(err)
+	}
 
 	// Create Avro Codec
 	codec := kavro.NewKafkaAvroEncoder(*schemaRegistry)
+	codecKey := kavro.NewKafkaAvroEncoder(*schemaRegistry)
 
 	// Create an Avro Record
 	record := gavro.NewGenericRecord(regSchema)
+	recordKey := gavro.NewGenericRecord(regSchemaKey)
 
 	// Create producer
 	producer, err := kafka.NewProducer(&kafka.ConfigMap{
@@ -240,33 +248,41 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string) {
 		}
 		log.Println("waiter ended")
 	}()
-	tempBuf := make([]byte, 100)
+	tempBuf := make([]byte, 1024)
+	tempBufKey := make([]byte, 100)
 	numMessages := 0
 	ctx := context.TODO()
 	for msg := range msgBus {
 		// Set ais messages data into the avro record
-		classA2Record(msg, record)
+		classA2Record(msg, record, recordKey)
 
 		tempBuf, err = codec.Encode(record)
 		if err != nil {
 			log.Println(err)
 		}
+		tempBufKey, err = codecKey.Encode(recordKey)
+		if err != nil {
+			log.Println(err)
+		}
 		// Publish the binary message to MQTT. Ask to deliver it at least once (QoS 1)
-		producer.ProduceChannel() <- &kafka.Message{TopicPartition: kafka.TopicPartition{Topic: topic, Partition: kafka.PartitionAny}, Value: tempBuf}
+		producer.ProduceChannel() <- &kafka.Message{
+			TopicPartition: kafka.TopicPartition{Topic: topic, Partition: kafka.PartitionAny},
+			Value:          tempBuf,
+			Key:            tempBufKey}
 		if numMessages%rateDivider == 0 {
 			limiter.Wait(ctx)
 		}
 		numMessages++
-
 	}
 }
 
 // class2ARecord will take a ClassAPositionReport and set its values into an
 // avro record
-func classA2Record(m ais.ClassAPositionReport, r *gavro.GenericRecord) {
+func classA2Record(m ais.ClassAPositionReport, r *gavro.GenericRecord, rKey *gavro.GenericRecord) {
 	r.Set("Type", int32(m.Type))
 	r.Set("Repeat", int32(m.Repeat))
 	r.Set("MMSI", int64(m.MMSI))
+	rKey.Set("MMSI", int64(m.MMSI))
 	r.Set("Speed", float32(m.Speed))
 	r.Set("Accuracy", m.Accuracy)
 	r.Set("Longitude", float64(m.Lon))
