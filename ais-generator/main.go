@@ -203,12 +203,12 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string, schemaKey strin
 	// Register Schema
 	sRClient := kavro.NewCachedSchemaRegistryClient(*schemaRegistry)
 	regSchema, _ := gavro.ParseSchema(schema)
-	_, err := sRClient.Register(*topic, regSchema)
+	_, err := sRClient.Register(*topic+"-value", regSchema)
 	if err != nil {
 		log.Fatalln(err)
 	}
 	regSchemaKey, _ := gavro.ParseSchema(schemaKey)
-	_, err = sRClient.Register(*topic, regSchemaKey)
+	_, err = sRClient.Register(*topic+"-key", regSchemaKey)
 	if err != nil {
 		log.Fatalln(err)
 	}
