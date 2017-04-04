@@ -256,6 +256,10 @@ func worker(msgBus chan ais.ClassAPositionReport, schema string, schemaKey strin
 		// Set ais messages data into the avro record
 		classA2Record(msg, record, recordKey)
 
+		// This here registers a schema with a funny name (classAPositionReport, Key)
+		// It actually is the way it works. It uses the schema name + "-value" as schema name. :(
+		// https://github.com/elodina/go-kafka-avro/blob/master/avro_encoder_decoder.go#L73
+		// For now we can't match, unless we fork or open a PR.
 		tempBuf, err = codec.Encode(record)
 		if err != nil {
 			log.Println(err)
