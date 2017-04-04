@@ -287,6 +287,7 @@ func classA2Record(m ais.ClassAPositionReport, r *gavro.GenericRecord, rKey *gav
 	r.Set("Accuracy", m.Accuracy)
 	r.Set("Longitude", float64(m.Lon))
 	r.Set("Latitude", float64(m.Lat))
+	r.Set("location", fmt.Sprintf("%f,%f", m.Lat, m.Lon))
 	r.Set("Course", float32(m.Course))
 	r.Set("Heading", int32(m.Heading))
 	r.Set("Second", int32(m.Second))
